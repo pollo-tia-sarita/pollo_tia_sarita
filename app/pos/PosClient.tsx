@@ -1,0 +1,777 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import {
+  Plus,
+  Minus,
+  Trash2,
+  Search,
+  ShoppingCart,
+  ArrowRight,
+} from "lucide-react";
+import Image from "next/image";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "react-hot-toast";
+import CobroModal, { MetodoPago, TipoVenta } from "./CobroModal";
+import TicketVenta, { TicketData } from "./TicketVenta";
+
+interface Categoria {
+  id: string;
+  nombre: string;
+  icono: string;
+}
+
+interface Producto {
+  id: string;
+  categoria_id: string;
+  nombre: string;
+  descripcion: string;
+  precio: number;
+  precio_oferta: number | null;
+  en_oferta: boolean;
+  imagen_url: string | null;
+  disponible: boolean;
+}
+
+interface ItemPedido {
+  producto: Producto;
+  cantidad: number;
+  subtotal: number;
+}
+
+interface Props {
+  categorias: Categoria[];
+  productos: Producto[];
+  turnoId: string;
+  cajeroId: string;
+  cajeroNombre: string;
+  sucursalId: string;
+  sucursalNombre: string;
+}
+
+export default function PosClient({
+  categorias,
+  productos,
+  turnoId,
+  cajeroId,
+  cajeroNombre,
+  sucursalId,
+  sucursalNombre,
+}: Props) {
+  const [categoriaActiva, setCategoriaActiva] = useState<string>(
+    categorias[0]?.id || "",
+  );
+  const [busqueda, setBusqueda] = useState("");
+  const [pedido, setPedido] = useState<ItemPedido[]>([]);
+
+  const supabase = createClient();
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Ticket Data
+  const [ticketData, setTicketData] = useState<TicketData | null>(null);
+
+  // Filtrado de productos
+  const productosFiltrados = useMemo(() => {
+    return productos.filter((p) => {
+      const matchCat = busqueda ? true : p.categoria_id === categoriaActiva;
+      const matchBusqueda = p.nombre
+        .toLowerCase()
+        .includes(busqueda.toLowerCase());
+      return p.disponible && matchCat && matchBusqueda;
+    });
+  }, [productos, categoriaActiva, busqueda]);
+
+  // Total del pedido
+  const totalPedido = useMemo(() => {
+    return pedido.reduce((acc, item) => acc + item.subtotal, 0);
+  }, [pedido]);
+
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("es-BO", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+
+  // Acciones de pedido
+  const agregarAlPedido = (producto: Producto) => {
+    setPedido((prev) => {
+      const index = prev.findIndex((i) => i.producto.id === producto.id);
+      const precioUnitario =
+        producto.en_oferta && producto.precio_oferta
+          ? producto.precio_oferta
+          : producto.precio;
+
+      if (index >= 0) {
+        const nuevos = [...prev];
+        nuevos[index].cantidad += 1;
+        nuevos[index].subtotal = nuevos[index].cantidad * precioUnitario;
+        return nuevos;
+      }
+      return [...prev, { producto, cantidad: 1, subtotal: precioUnitario }];
+    });
+  };
+
+  const actualizarCantidad = (id: string, delta: number) => {
+    setPedido((prev) => {
+      return prev
+        .map((item) => {
+          if (item.producto.id === id) {
+            const nuevaCant = item.cantidad + delta;
+            if (nuevaCant <= 0) return item; // Handle removal separately
+            const precioUnitario =
+              item.producto.en_oferta && item.producto.precio_oferta
+                ? item.producto.precio_oferta
+                : item.producto.precio;
+            return {
+              ...item,
+              cantidad: nuevaCant,
+              subtotal: nuevaCant * precioUnitario,
+            };
+          }
+          return item;
+        })
+        .filter((item) => item.cantidad > 0);
+    });
+  };
+
+  const eliminarDelPedido = (id: string) => {
+    setPedido((prev) => prev.filter((i) => i.producto.id !== id));
+  };
+
+  const handleConfirmarVenta = async (
+    metodo: MetodoPago,
+    tipoVenta: TipoVenta,
+    montoRecibido: number,
+  ) => {
+    setIsProcessing(true);
+
+    try {
+      // 1. Crear la Venta
+      const { data: venta, error: ventaError } = await supabase
+        .from("ventas")
+        .insert({
+          turno_id: turnoId,
+          cajero_id: cajeroId,
+          sucursal_id: sucursalId,
+          subtotal: totalPedido,
+          descuento: 0,
+          total: totalPedido,
+          metodo_pago: metodo,
+          monto_recibido: montoRecibido,
+          vuelto: montoRecibido - totalPedido,
+          tipo_pedido: tipoVenta,
+          estado: "completada",
+        })
+        .select("id")
+        .single();
+
+      if (ventaError) throw ventaError;
+
+      // 2. Crear los Detalles de Venta
+      const detalles = pedido.map((item) => ({
+        venta_id: venta.id,
+        producto_id: item.producto.id,
+        nombre_producto: item.producto.nombre,
+        precio_unitario:
+          item.producto.en_oferta && item.producto.precio_oferta
+            ? item.producto.precio_oferta
+            : item.producto.precio,
+        cantidad: item.cantidad,
+        subtotal:
+          (item.producto.en_oferta && item.producto.precio_oferta
+            ? item.producto.precio_oferta
+            : item.producto.precio) * item.cantidad,
+      }));
+
+      const { error: detalleError } = await supabase
+        .from("detalle_ventas")
+        .insert(detalles);
+
+      if (detalleError) throw detalleError;
+
+      // 3. Preparar Ticket para Imprimir
+      const ticket: TicketData = {
+        sucursalNombre: sucursalNombre,
+        cajeroNombre: cajeroNombre,
+        numeroTicket: venta.id.split("-")[0].toUpperCase(),
+        tipoPedido: tipoVenta,
+        metodoPago: metodo,
+        total: totalPedido,
+        recibido: montoRecibido,
+        vuelto: montoRecibido - totalPedido,
+        items: pedido.map((i) => ({
+          nombre: i.producto.nombre,
+          cantidad: i.cantidad,
+          precio:
+            i.producto.en_oferta && i.producto.precio_oferta
+              ? i.producto.precio_oferta
+              : i.producto.precio,
+          subtotal: i.subtotal,
+        })),
+        fecha: new Date().toLocaleString("es-BO"),
+      };
+      setTicketData(ticket);
+
+      toast.success("¡Venta completada! Generando ticket...");
+
+      // Esperar renderizado y lanzar print
+      setTimeout(() => {
+        window.print();
+        setPedido([]);
+        setIsModalOpen(false);
+      }, 500);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Error al registrar la venta: " + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="pos-client animate-fade-in no-print">
+        {/* LADO IZQUIERDO: MENÚ (65%) */}
+        <div className="pos-menu">
+          {/* Barra de Búsqueda */}
+          <div className="pos-search-bar">
+            <div className="input-icon-wrap w-full">
+              <Search size={18} className="icon" />
+              <input
+                type="text"
+                placeholder="Buscar plato, bebida, combo..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                className="input-field has-icon pos-search-input"
+              />
+            </div>
+          </div>
+
+          {/* Categorías (solo se muestran si no hay búsqueda activa) */}
+          {!busqueda && (
+            <div className="pos-categorias">
+              {categorias.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCategoriaActiva(cat.id)}
+                  className={`pos-cat-btn ${categoriaActiva === cat.id ? "active" : ""}`}
+                >
+                  <span className="cat-icon">{cat.icono || "🍽️"}</span>
+                  <span className="cat-nombre">{cat.nombre}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Grid de Productos */}
+          <div className="pos-productos-grid">
+            {productosFiltrados.length > 0 ? (
+              productosFiltrados.map((prod) => {
+                const precioMostrar =
+                  prod.en_oferta && prod.precio_oferta
+                    ? prod.precio_oferta
+                    : prod.precio;
+                return (
+                  <div
+                    key={prod.id}
+                    className="pos-product-card card-hover"
+                    onClick={() => agregarAlPedido(prod)}
+                  >
+                    <div className="pos-product-img-wrap">
+                      {prod.imagen_url ? (
+                        <Image
+                          src={prod.imagen_url}
+                          alt={prod.nombre}
+                          fill
+                          className="pos-product-img"
+                        />
+                      ) : (
+                        <div className="pos-product-noimg">🍗</div>
+                      )}
+                      {prod.en_oferta && (
+                        <div className="pos-product-badge badge-yellow">
+                          ¡OFERTA!
+                        </div>
+                      )}
+                    </div>
+                    <div className="pos-product-info">
+                      <h3 className="pos-product-name">{prod.nombre}</h3>
+                      <div className="pos-product-price-row">
+                        <span className="pos-product-price">
+                          Bs. {fmt(precioMostrar)}
+                        </span>
+                        {prod.en_oferta && prod.precio_oferta && (
+                          <span className="pos-product-price-old">
+                            Bs. {fmt(prod.precio)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button className="pos-product-add">
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="pos-empty-state">
+                <ShoppingCart
+                  size={40}
+                  style={{ opacity: 0.2, marginBottom: "10px" }}
+                />
+                <p>No se encontraron productos.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* LADO DERECHO: TICKET (35%) */}
+        <div className="pos-ticket">
+          <div className="ticket-header">
+            <h2 className="ticket-title">Pedido Actual</h2>
+            <span className="badge badge-gray">{pedido.length} items</span>
+          </div>
+
+          {/* Lista de Items */}
+          <div className="ticket-body">
+            {pedido.length === 0 ? (
+              <div className="ticket-empty">
+                <div className="ticket-empty-icon">🍽️</div>
+                <p>
+                  Agrega productos al
+                  <br />
+                  pedido para comenzar
+                </p>
+              </div>
+            ) : (
+              <div className="ticket-items">
+                {pedido.map((item) => (
+                  <div key={item.producto.id} className="ticket-item">
+                    <div className="ticket-item-main">
+                      <div className="ticket-item-name">
+                        {item.producto.nombre}
+                      </div>
+                      <div className="ticket-item-sub">
+                        Bs.{" "}
+                        {fmt(
+                          item.producto.en_oferta && item.producto.precio_oferta
+                            ? item.producto.precio_oferta
+                            : item.producto.precio,
+                        )}{" "}
+                        x {item.cantidad}
+                      </div>
+                    </div>
+
+                    <div className="ticket-item-controls">
+                      <button
+                        className="ticket-btn-qty disable-dbl-tap-zoom"
+                        onClick={() => actualizarCantidad(item.producto.id, -1)}
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <span className="ticket-qty-value">{item.cantidad}</span>
+                      <button
+                        className="ticket-btn-qty add disable-dbl-tap-zoom"
+                        onClick={() => actualizarCantidad(item.producto.id, 1)}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+
+                    <div className="ticket-item-price">
+                      Bs. {fmt(item.subtotal)}
+                    </div>
+
+                    <button
+                      className="ticket-btn-delete"
+                      onClick={() => eliminarDelPedido(item.producto.id)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Totales y Cobrar */}
+          <div className="ticket-footer">
+            <div className="ticket-totals">
+              <div className="ticket-total-row">
+                <span className="ticket-total-label">Subtotal</span>
+                <span className="ticket-total-val">Bs. {fmt(totalPedido)}</span>
+              </div>
+              {/* Si hay impuestos o descuentos irían aquí */}
+              <div className="ticket-divider" />
+              <div className="ticket-total-row big">
+                <span className="ticket-total-label">TOTAL</span>
+                <span className="ticket-total-val text-red">
+                  Bs. {fmt(totalPedido)}
+                </span>
+              </div>
+            </div>
+
+            <button
+              className="btn btn-primary btn-lg w-full ticket-cobrar-btn"
+              disabled={pedido.length === 0}
+              onClick={() => setIsModalOpen(true)}
+            >
+              <span>Cobrar Pedido</span>
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+
+        <CobroModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          total={totalPedido}
+          onConfirmar={handleConfirmarVenta}
+          cargando={isProcessing}
+        />
+
+        <style>{`
+        .pos-client {
+          display: flex;
+          width: 100%;
+          height: 100%;
+          gap: 0;
+          background: var(--bg-900);
+        }
+
+        /* ----- LADO IZQUIERDO (MENÚ) ----- */
+        .pos-menu {
+          flex: 0 0 65%;
+          display: flex;
+          flex-direction: column;
+          padding: 24px;
+          gap: 20px;
+          border-right: 1px solid var(--border);
+          overflow: hidden;
+        }
+
+        .pos-search-input {
+          background: var(--bg-800);
+          border: 1px solid var(--border);
+          padding: 14px 16px 14px 44px;
+          font-size: 1.05rem;
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-sm);
+        }
+        .pos-search-input:focus {
+          border-color: var(--red);
+          background: var(--bg-700);
+        }
+
+        .pos-categorias {
+          display: flex;
+          gap: 12px;
+          overflow-x: auto;
+          padding-bottom: 8px;
+        }
+        .pos-categorias::-webkit-scrollbar { height: 4px; }
+
+        .pos-cat-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 18px;
+          background: var(--bg-800);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-full);
+          color: var(--text-300);
+          font-weight: 600;
+          font-size: 0.95rem;
+          white-space: nowrap;
+          transition: var(--transition);
+        }
+        .pos-cat-btn:hover { background: var(--bg-700); color: var(--text-200); }
+        .pos-cat-btn.active {
+          background: var(--red);
+          color: white;
+          border-color: var(--red-light);
+          box-shadow: var(--shadow-red);
+        }
+        .cat-icon { font-size: 1.2rem; }
+
+        .pos-productos-grid {
+          flex: 1;
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 16px;
+          overflow-y: auto;
+          padding-right: 4px;
+          padding-bottom: 24px;
+        }
+
+        .pos-product-card {
+          background: var(--bg-700);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          cursor: pointer;
+          position: relative;
+          transition: var(--transition);
+        }
+        .pos-product-card:hover {
+          border-color: var(--border-hover);
+          transform: translateY(-4px);
+          box-shadow: 0 12px 24px rgba(0,0,0,0.5);
+        }
+        .pos-product-card:active { transform: scale(0.97); }
+
+        .pos-product-img-wrap {
+          width: 100%;
+          aspect-ratio: 1;
+          border-radius: var(--radius-md);
+          background: var(--bg-800);
+          position: relative;
+          overflow: hidden;
+        }
+        .pos-product-img { object-fit: cover; }
+        .pos-product-noimg {
+          width: 100%; height: 100%;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 3rem;
+          opacity: 0.1;
+        }
+        .pos-product-badge {
+          position: absolute;
+          top: 8px; left: 8px;
+          z-index: 10;
+          box-shadow: var(--shadow-sm);
+        }
+
+        .pos-product-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .pos-product-name {
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: var(--text-100);
+          line-height: 1.2;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .pos-product-price-row {
+          display: flex; align-items: baseline; gap: 8px; margin-top: auto;
+        }
+        .pos-product-price {
+          font-size: 1.15rem;
+          font-weight: 800;
+          color: var(--yellow);
+        }
+        .pos-product-price-old {
+          font-size: 0.8rem;
+          color: var(--text-500);
+          text-decoration: line-through;
+        }
+
+        .pos-product-add {
+          position: absolute;
+          bottom: 12px; right: 12px;
+          width: 32px; height: 32px;
+          border-radius: 50%;
+          background: var(--red);
+          color: white;
+          display: flex; align-items: center; justify-content: center;
+          box-shadow: var(--shadow-sm);
+          transition: var(--transition);
+        }
+        .pos-product-card:hover .pos-product-add {
+          transform: scale(1.1);
+        }
+
+        .pos-empty-state {
+          grid-column: 1 / -1;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          color: var(--text-500); margin-top: 40px;
+        }
+
+        /* ----- LADO DERECHO (TICKET) ----- */
+        .pos-ticket {
+          flex: 0 0 35%;
+          background: var(--bg-800);
+          display: flex; flex-direction: column;
+          position: relative;
+        }
+
+        .ticket-header {
+          padding: 24px;
+          display: flex; align-items: center; justify-content: space-between;
+          border-bottom: 1px solid var(--border);
+        }
+        .ticket-title { font-size: 1.2rem; font-weight: 800; color: var(--text-100); }
+
+        .ticket-body {
+          flex: 1;
+          overflow-y: auto;
+          position: relative;
+        }
+
+        .ticket-empty {
+          position: absolute; inset: 0;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          color: var(--text-500); text-align: center; gap: 16px;
+        }
+        .ticket-empty-icon {
+          font-size: 3rem; background: var(--bg-700);
+          width: 80px; height: 80px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+        }
+
+        .ticket-items {
+          display: flex; flex-direction: column;
+        }
+        .ticket-item {
+          display: grid;
+          grid-template-columns: 1fr auto auto auto;
+          gap: 12px;
+          align-items: center;
+          padding: 16px 24px;
+          border-bottom: 1px dashed rgba(255,255,255,0.05);
+          animation: slideInLeft 0.2s ease forwards;
+        }
+        .ticket-item:hover { background: rgba(255,255,255,0.02); }
+
+        .ticket-item-main { min-width: 0; }
+        .ticket-item-name {
+          font-size: 0.95rem; font-weight: 600; color: var(--text-100);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .ticket-item-sub { font-size: 0.8rem; color: var(--text-500); margin-top: 2px; }
+
+        .ticket-item-controls {
+          display: flex; align-items: center; gap: 8px; background: var(--bg-900);
+          border-radius: var(--radius-full); padding: 4px;
+        }
+        .ticket-btn-qty {
+          width: 26px; height: 26px; border-radius: 50%;
+          background: var(--bg-600); color: var(--text-300);
+          display: flex; align-items: center; justify-content: center;
+          transition: var(--transition);
+        }
+        .ticket-btn-qty:hover { background: var(--bg-500); color: var(--text-100); }
+        .ticket-btn-qty.add { background: rgba(253,216,53,0.15); color: var(--yellow); }
+        .ticket-btn-qty.add:hover { background: var(--yellow); color: #000; }
+        .ticket-qty-value { width: 16px; text-align: center; font-weight: 700; font-size: 0.9rem; }
+
+        .ticket-item-price { font-weight: 800; font-size: 1.05rem; min-width: 80px; text-align: right; }
+
+        .ticket-btn-delete {
+          color: var(--text-600); padding: 6px; border-radius: var(--radius-sm);
+        }
+        .ticket-btn-delete:hover { color: var(--red); background: rgba(211,47,47,0.1); }
+
+        .ticket-footer {
+          background: var(--bg-900);
+          padding: 24px;
+          border-top: 1px solid var(--border);
+          box-shadow: 0 -10px 30px rgba(0,0,0,0.5);
+          z-index: 10;
+        }
+
+        .ticket-totals { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+        .ticket-total-row { display: flex; justify-content: space-between; align-items: center; }
+        .ticket-total-label { color: var(--text-400); font-size: 0.95rem; }
+        .ticket-total-val { color: var(--text-200); font-weight: 600; font-size: 1rem; }
+        .ticket-total-row.big .ticket-total-label { font-size: 1.2rem; font-weight: 800; color: var(--text-100); }
+        .ticket-total-row.big .ticket-total-val { font-size: 1.8rem; font-weight: 900; }
+        .text-red { color: var(--red) !important; }
+        
+        .ticket-divider { height: 1px; background: dashed var(--border); }
+
+        .ticket-cobrar-btn {
+          height: 60px; font-size: 1.2rem; border-radius: var(--radius-xl);
+          justify-content: space-between; padding: 0 30px;
+          background: linear-gradient(135deg, var(--red-dark), var(--red));
+        }
+        .ticket-cobrar-btn:disabled { opacity: 0.5; filter: grayscale(1); cursor: not-allowed; }
+
+        .disable-dbl-tap-zoom { touch-action: manipulation; }
+
+        @media (max-width: 900px) {
+          .pos-client {
+            flex-direction: column;
+          }
+          .pos-menu {
+            flex: 1;
+            padding: 12px;
+            border-right: none;
+            border-bottom: 2px solid var(--border);
+          }
+          .pos-ticket {
+            flex: 0 0 320px;
+          }
+          .pos-productos-grid {
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 10px;
+          }
+          .pos-product-card {
+            padding: 8px;
+            gap: 8px;
+          }
+          .pos-product-name {
+            font-size: 0.85rem;
+          }
+          .pos-product-price {
+            font-size: 1rem;
+          }
+          .pos-product-add {
+            bottom: 8px; right: 8px;
+            width: 28px; height: 28px;
+          }
+          .ticket-header {
+            padding: 15px;
+          }
+          .ticket-footer {
+            padding: 15px;
+          }
+          .ticket-cobrar-btn {
+            height: 50px;
+            font-size: 1.1rem;
+          }
+        }
+
+      `}</style>
+      </div>
+
+      {/* ZONA DE IMPRESIÓN OCULTA HASTA EL WINDOW.PRINT */}
+      <div className="print-area">
+        <TicketVenta data={ticketData} />
+      </div>
+
+      <style>{`
+      @media screen {
+        .print-area { display: none; }
+      }
+      @media print {
+        @page {
+          size: 80mm 297mm;
+          margin: 0;
+        }
+        body, html { margin: 0; padding: 0; background: #fff; }
+        body * { visibility: hidden; }
+        .print-area, .print-area * { visibility: visible; }
+        .print-area { 
+          position: absolute; 
+          left: 0; 
+          top: 0; 
+          width: 80mm;
+          background: #fff; 
+          margin: 0; 
+          padding: 0; 
+        }
+        .no-print { display: none !important; }
+      }
+    `}</style>
+    </>
+  );
+}

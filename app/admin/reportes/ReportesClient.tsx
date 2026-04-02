@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { 
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { TrendingUp, Package, Users, DollarSign, Calendar as CalIcon } from 'lucide-react'
+import { TrendingUp, Package, Users, DollarSign, Calendar as CalIcon, Printer } from 'lucide-react'
 
 interface Props {
   ventasDiarias: any[]
@@ -96,6 +96,16 @@ export default function ReportesClient({ ventasDiarias, topProductos, desempenoC
              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={{ background: 'var(--bg-900)', border: '1px solid var(--border)', padding: '8px 12px', borderRadius: 'var(--radius-md)', color: 'var(--text-100)', outline: 'none' }} />
           </div>
           <button onClick={handleFiltrar} className="btn btn-primary" style={{ padding: '8px 20px', height: '42px', fontWeight: 700 }}>Aplicar Filtro</button>
+          
+          <button 
+            onClick={() => window.print()} 
+            className="btn btn-ghost no-print" 
+            style={{ padding: '8px 16px', height: '42px', display: 'flex', gap: '8px', alignItems: 'center', border: '1px solid var(--border)' }}
+            title="Exportar como PDF para imprimir"
+          >
+            <Printer size={18} />
+            Exportar PDF
+          </button>
         </div>
       </div>
       
@@ -286,6 +296,44 @@ export default function ReportesClient({ ventasDiarias, topProductos, desempenoC
           color: var(--text-100);
           margin-bottom: 24px;
           display: flex; align-items: center; gap: 8px;
+        }
+
+        /* Estilos de impresión para PDF */
+        @media print {
+          body { 
+            background: white !important; 
+            color: black !important;
+          }
+          .admin-sidebar, 
+          .admin-header, 
+          .no-print,
+          .page-header p {
+            display: none !important;
+          }
+          .admin-main { margin-left: 0 !important; }
+          .admin-content { padding: 0 !important; overflow: visible !important; }
+          .reportes-client { gap: 16px !important; }
+          
+          .kpi-card { 
+            border: 1px solid #ddd !important; 
+            background: #f9f9f9 !important; 
+            break-inside: avoid;
+            box-shadow: none !important;
+          }
+          .kpi-label, .kpi-value { color: #000 !important; }
+          
+          .chart-panel { 
+            background: #fff !important; 
+            border: 1px solid #ccc !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            margin-bottom: 16px;
+          }
+          .panel-title { color: #000 !important; }
+          
+          text { fill: #333 !important; } /* Texto de los gráficos */
+          table th { background: #eee !important; color: #000 !important; border-bottom: 2px solid #ccc !important; }
+          table td { border-bottom: 1px solid #eee !important; color: #333 !important; }
         }
       `}</style>
     </div>

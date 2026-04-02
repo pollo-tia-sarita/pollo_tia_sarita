@@ -36,8 +36,12 @@ export default function LoginPage() {
         .eq('id', data.user.id)
         .single()
 
+      const rolesOperativos = ['mesero', 'cocinero', 'repartidor', 'limpieza']
+
       if (perfil?.rol === 'cajero') {
         router.push('/pos')
+      } else if (rolesOperativos.includes(perfil?.rol || '')) {
+        router.push('/portal')
       } else {
         router.push('/admin/dashboard')
       }

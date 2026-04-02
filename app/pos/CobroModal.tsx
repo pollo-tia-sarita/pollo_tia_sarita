@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Banknote, CreditCard, Smartphone, CheckCircle2 } from 'lucide-react'
 
 export type MetodoPago = 'efectivo' | 'tarjeta' | 'qr'
@@ -18,6 +18,15 @@ export default function CobroModal({ isOpen, onClose, total, onConfirmar, cargan
   const [metodo, setMetodo] = useState<MetodoPago>('efectivo')
   const [tipo, setTipo] = useState<TipoVenta>('para_llevar')
   const [montoIngresado, setMontoIngresado] = useState<string>('')
+
+  // Resetear el estado cada vez que se abre el modal (nueva venta)
+  useEffect(() => {
+    if (isOpen) {
+      setMetodo('efectivo')
+      setTipo('para_llevar')
+      setMontoIngresado('')
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 

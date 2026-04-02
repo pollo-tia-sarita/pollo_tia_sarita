@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
   Plus,
   Minus,
@@ -8,6 +8,8 @@ import {
   Search,
   ShoppingCart,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
@@ -65,6 +67,44 @@ export default function PosClient({
   const [pedido, setPedido] = useState<ItemPedido[]>([]);
 
   const supabase = createClient();
+
+  // Ref para la barra de categorías
+  const catBarRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const checkScroll = useCallback(() => {
+    const el = catBarRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 4)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
+  }, [])
+
+  useEffect(() => {
+    const el = catBarRef.current
+    if (!el) return
+    checkScroll()
+    el.addEventListener('scroll', checkScroll)
+    window.addEventListener('resize', checkScroll)
+    return () => {
+      el.removeEventListener('scroll', checkScroll)
+      window.removeEventListener('resize', checkScroll)
+    }
+  }, [checkScroll])
+
+  // Scroll con rueda del mouse en la barra de categorías
+  const handleCatWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (catBarRef.current) {
+      e.preventDefault()
+      catBarRef.current.scrollLeft += e.deltaY
+    }
+  }, [])
+
+  const scrollCats = (dir: 'left' | 'right') => {
+    if (catBarRef.current) {
+      catBarRef.current.scrollBy({ left: dir === 'right' ? 220 : -220, behavior: 'smooth' })
+    }
+  }
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -250,19 +290,35 @@ export default function PosClient({
             </div>
           </div>
 
-          {/* Categorías (solo se muestran si no hay búsqueda activa) */}
+          {/* Categorías con flechas de navegación */}
           {!busqueda && (
-            <div className="pos-categorias">
-              {categorias.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setCategoriaActiva(cat.id)}
-                  className={`pos-cat-btn ${categoriaActiva === cat.id ? "active" : ""}`}
-                >
-                  <span className="cat-icon">{cat.icono || "🍽️"}</span>
-                  <span className="cat-nombre">{cat.nombre}</span>
+            <div className="pos-categorias-wrapper">
+              {canScrollLeft && (
+                <button className="pos-cat-arrow left" onClick={() => scrollCats('left')}>
+                  <ChevronLeft size={20} />
                 </button>
-              ))}
+              )}
+              <div
+                className="pos-categorias"
+                ref={catBarRef}
+                onWheel={handleCatWheel}
+              >
+                {categorias.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setCategoriaActiva(cat.id)}
+                    className={`pos-cat-btn ${categoriaActiva === cat.id ? "active" : ""}`}
+                  >
+                    <span className="cat-icon">{cat.icono || "🍽️"}</span>
+                    <span className="cat-nombre">{cat.nombre}</span>
+                  </button>
+                ))}
+              </div>
+              {canScrollRight && (
+                <button className="pos-cat-arrow right" onClick={() => scrollCats('right')}>
+                  <ChevronRight size={20} />
+                </button>
+              )}
             </div>
           )}
 
@@ -466,13 +522,42 @@ export default function PosClient({
           background: var(--bg-700);
         }
 
+        .pos-categorias-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 0;
+        }
+        .pos-cat-arrow {
+          flex-shrink: 0;
+          width: 36px;
+          height: 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--bg-700);
+          border: 1px solid var(--border);
+          border-radius: 50%;
+          color: var(--text-300);
+          cursor: pointer;
+          transition: var(--transition);
+          z-index: 2;
+        }
+        .pos-cat-arrow:hover { background: var(--red); color: #fff; border-color: var(--red); }
+        .pos-cat-arrow.left { margin-right: 8px; }
+        .pos-cat-arrow.right { margin-left: 8px; }
+
         .pos-categorias {
           display: flex;
-          gap: 12px;
+          flex: 1;
+          gap: 10px;
           overflow-x: auto;
-          padding-bottom: 8px;
+          padding-bottom: 4px;
+          scroll-behavior: smooth;
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
-        .pos-categorias::-webkit-scrollbar { height: 4px; }
+        .pos-categorias::-webkit-scrollbar { display: none; }
 
         .pos-cat-btn {
           display: flex;

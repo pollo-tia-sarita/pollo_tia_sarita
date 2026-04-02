@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Edit2, Trash2, Search, Image as ImageIcon, LayoutGrid, Package } from 'lucide-react'
+import { Plus, Edit2, Trash2, Search, Image as ImageIcon, LayoutGrid, Package, EyeOff, Eye, ChefHat } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'react-hot-toast'
 import CategoriaModal from './CategoriaModal'
 import ProductoModal from './ProductoModal'
+import RecetaModal from './RecetaModal'
 
 interface Categoria {
   id: string
@@ -46,23 +47,29 @@ export default function MenuClient({ categoriasIniciales, productosIniciales }: 
   // Modal States
   const [isCatModalOpen, setIsCatModalOpen] = useState(false)
   const [isProdModalOpen, setIsProdModalOpen] = useState(false)
+  const [isRecetaModalOpen, setIsRecetaModalOpen] = useState(false)
   const [editingCat, setEditingCat] = useState<Categoria | null>(null)
   const [editingProd, setEditingProd] = useState<Producto | null>(null)
+  const [recetaConfig, setRecetaConfig] = useState<{id: string, nombre: string} | null>(null)
 
   const handleSuccess = () => {
     router.refresh()
   }
 
-  const handleDeleteSub = async (id: string, table: 'categorias' | 'productos') => {
-    if (!confirm(`¿Estás seguro de eliminar este elemento de ${table}?`)) return
-    
+  const handleToggleDisponible = async (id: string, estadoActual: boolean) => {
+    const accion = estadoActual ? 'desactivar' : 'reactivar'
+    if (!confirm(`¿Deseas ${accion} este producto?`)) return
+
     try {
-      const { error } = await supabase.from(table).delete().eq('id', id)
+      const { error } = await supabase
+        .from('productos')
+        .update({ disponible: !estadoActual })
+        .eq('id', id)
       if (error) throw error
-      toast.success('Eliminado correctamente')
+      toast.success(estadoActual ? 'Producto desactivado. Ya no aparece en el POS.' : 'Producto reactivado correctamente.')
       router.refresh()
     } catch (err: any) {
-      toast.error(err.message || 'Error al eliminar')
+      toast.error(err.message || 'Error al actualizar')
     }
   }
 
@@ -180,10 +187,22 @@ export default function MenuClient({ categoriasIniciales, productosIniciales }: 
                     <Edit2 size={16} /> Editar
                   </button>
                   <button 
-                    className="btn btn-icon-only text-gray-400 hover-danger"
-                    onClick={() => handleDeleteSub(prod.id, 'productos')}
+                    className="btn btn-ghost flex-1"
+                    style={{ color: 'var(--yellow)' }}
+                    onClick={() => {
+                      setRecetaConfig({ id: prod.id, nombre: prod.nombre })
+                      setIsRecetaModalOpen(true)
+                    }}
                   >
-                    <Trash2 size={18} />
+                    <ChefHat size={16} /> Receta
+                  </button>
+                  <button 
+                    className="btn btn-icon-only hover-danger"
+                    style={{ color: prod.disponible ? 'var(--text-400)' : '#4CAF50' }}
+                    title={prod.disponible ? 'Desactivar producto' : 'Reactivar producto'}
+                    onClick={() => handleToggleDisponible(prod.id, prod.disponible)}
+                  >
+                    {prod.disponible ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
               </div>
@@ -220,7 +239,13 @@ export default function MenuClient({ categoriasIniciales, productosIniciales }: 
                  </button>
                  <button 
                     className="btn btn-icon-only text-gray-400 hover-danger"
-                    onClick={() => handleDeleteSub(cat.id, 'categorias')}
+                    title="Eliminar categoría"
+                    onClick={async () => {
+                      if (!confirm('¿Eliminar esta categoría?')) return
+                      const { error } = await supabase.from('categorias').delete().eq('id', cat.id)
+                      if (error) toast.error('No se puede eliminar: tiene productos asignados.')
+                      else { toast.success('Categoría eliminada'); router.refresh() }
+                    }}
                   >
                     <Trash2 size={18} />
                   </button>
@@ -243,6 +268,12 @@ export default function MenuClient({ categoriasIniciales, productosIniciales }: 
         productoToEdit={editingProd} 
         categorias={categoriasIniciales}
         onSuccess={handleSuccess} 
+      />
+      <RecetaModal
+        isOpen={isRecetaModalOpen}
+        onClose={() => { setIsRecetaModalOpen(false); setRecetaConfig(null); }}
+        productoId={recetaConfig?.id || null}
+        productoNombre={recetaConfig?.nombre || null}
       />
 
       <style>{`

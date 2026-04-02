@@ -16,8 +16,14 @@ export default async function HomePage() {
     .eq('id', user.id)
     .single()
 
+  const rolesOperativos = ['mesero', 'cocinero', 'repartidor', 'limpieza']
+
   if (perfil?.rol === 'cajero') {
     redirect('/pos')
+  }
+
+  if (rolesOperativos.includes(perfil?.rol || '')) {
+    redirect('/portal')
   }
 
   redirect('/admin/dashboard')

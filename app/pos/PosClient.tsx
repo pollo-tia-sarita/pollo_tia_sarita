@@ -205,7 +205,7 @@ export default function PosClient({
           tipo_pedido: tipoVenta,
           estado: "completada",
         })
-        .select("id")
+        .select("id, numero_ticket")
         .single();
 
       if (ventaError) throw ventaError;
@@ -236,7 +236,7 @@ export default function PosClient({
       const ticket: TicketData = {
         sucursalNombre: sucursalNombre,
         cajeroNombre: cajeroNombre,
-        numeroTicket: venta.id.split("-")[0].toUpperCase(),
+        numeroTicket: String(venta.numero_ticket).padStart(4, "0"),
         tipoPedido: tipoVenta,
         metodoPago: metodo,
         total: totalPedido,

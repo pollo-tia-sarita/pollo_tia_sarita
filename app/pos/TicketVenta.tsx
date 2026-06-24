@@ -59,7 +59,7 @@ export default function TicketVenta({ data }: { data: TicketData | null }) {
                 <td style={{ verticalAlign: 'top', width: '30px' }}>{item.cantidad}</td>
                 <td style={{ verticalAlign: 'top' }}>
                   {item.nombre}
-                  <div style={{ fontSize: '10px' }}>{item.precio.toFixed(2)} c/u</div>
+                  <div style={{ fontSize: '11px' }}>{item.precio.toFixed(2)} c/u</div>
                 </td>
                 <td style={{ verticalAlign: 'top', textAlign: 'right' }}>{fmt(item.subtotal)}</td>
               </tr>
@@ -109,9 +109,15 @@ export default function TicketVenta({ data }: { data: TicketData | null }) {
           padding: 5mm;
           background: #fff;
           color: #000;
-          font-family: 'Courier New', Courier, monospace;
+          font-family: Arial, Helvetica, sans-serif;
+          font-weight: 700;
           line-height: 1.4;
-          font-size: 12px;
+          font-size: 13px;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        .ticket-container * {
+          font-weight: 700;
         }
 
         .ticket-header-print {
@@ -126,7 +132,7 @@ export default function TicketVenta({ data }: { data: TicketData | null }) {
         }
         .ticket-branch, .ticket-info {
           margin: 0;
-          font-size: 12px;
+          font-size: 13px;
         }
 
         .ticket-divider {

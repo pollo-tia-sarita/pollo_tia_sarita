@@ -34,14 +34,16 @@ export default function AbrirTurno({ cajeroId, sucursalId, cajeroNombre, cajeroR
       })
 
       if (error) throw error
-      
-      // Enviar Notificación al Admin
-      await supabase.from('notificaciones').insert({
+
+      // Notificación al admin: best-effort, no debe bloquear la apertura
+      // del turno (que ya se creó con éxito en la línea de arriba).
+      const { error: notifError } = await supabase.from('notificaciones').insert({
         usuario_origen_id: cajeroId,
         rol_origen: cajeroRol,
         tipo: 'caja',
         mensaje: `El/La Cajero(a) ${cajeroNombre} acaba de ABRIR su caja y empezar su turno con Bs. ${montoInicial.toFixed(2)}`
       })
+      if (notifError) console.error('No se pudo enviar la notificación de apertura:', notifError)
 
       toast.success('Turno abierto correctamente')
       router.refresh() // Recargar la página para que page.tsx detecte el turno activo y muestre el POS

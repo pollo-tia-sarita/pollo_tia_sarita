@@ -26,12 +26,18 @@ export default async function PosPage() {
   }
 
   // Verificar si hay un turno abierto
-  const { data: turnoActivo, error: turnoError } = await supabase
+  // (usamos order + limit en vez de .single() porque .single() truena
+  // si por algún motivo hay más de un turno "abierto" para el cajero,
+  // dejando al usuario atascado en la pantalla de apertura)
+  const { data: turnosAbiertos, error: turnoError } = await supabase
     .from('turnos')
     .select('id')
     .eq('cajero_id', user.id)
     .eq('estado', 'abierto')
-    .single()
+    .order('fecha_apertura', { ascending: false })
+    .limit(1)
+
+  const turnoActivo = turnosAbiertos?.[0] ?? null
 
   // Si no hay turno activo, obligar a abrir caja
   if (!turnoActivo) {

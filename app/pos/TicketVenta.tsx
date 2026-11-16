@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef, useState } from 'react'
+
 export interface TicketData {
   sucursalNombre: string
   cajeroNombre: string
@@ -17,12 +19,21 @@ export interface TicketData {
 }
 
 export default function TicketVenta({ data }: { data: TicketData | null }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [altoMm, setAltoMm] = useState(0)
+
+  // El rollo térmico es continuo: si la página es más alta que el ticket,
+  // la impresora avanza papel en blanco hasta completarla. +3mm evita una 2da página.
+  useLayoutEffect(() => {
+    if (ref.current) setAltoMm(Math.ceil(ref.current.offsetHeight * 25.4 / 96) + 3)
+  }, [data])
+
   if (!data) return null
 
   const fmt = (n: number) => n.toFixed(2)
 
   return (
-    <div className="ticket-container">
+    <div className="ticket-container" ref={ref}>
       {/* Cabecera */}
       <div className="ticket-header-print">
         <h1 className="ticket-brand">TÍA SARITA</h1>
@@ -102,6 +113,8 @@ export default function TicketVenta({ data }: { data: TicketData | null }) {
       </div>
 
       <style>{`
+        ${altoMm > 0 ? `@media print { @page { size: 80mm ${altoMm}mm; margin: 0; } }` : ''}
+
         /* ESTILOS EXCLUSIVOS DE IMPRESIÓN (BLANCO Y NEGRO PURO) */
         .ticket-container {
           width: 80mm; /* Estándar térmico 80mm */

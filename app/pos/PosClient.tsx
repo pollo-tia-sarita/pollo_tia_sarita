@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
   Plus,
   Minus,
@@ -829,22 +828,33 @@ export default function PosClient({
       `}</style>
       </div>
 
-      {/* ZONA DE IMPRESIÓN: directo en <body> para que al imprimir sea lo único que ocupa espacio */}
-      {ticketData && createPortal(
-        <div className="print-area">
-          <TicketVenta data={ticketData} />
-        </div>,
-        document.body
-      )}
+      {/* ZONA DE IMPRESIÓN OCULTA HASTA EL WINDOW.PRINT */}
+      <div className="print-area">
+        <TicketVenta data={ticketData} />
+      </div>
 
       <style>{`
       @media screen {
-        /* fuera de pantalla (no display:none) para poder medir el alto del ticket */
-        .print-area { position: fixed; top: 0; left: -10000px; width: 80mm; }
+        .print-area { display: none; }
       }
       @media print {
-        html, body { margin: 0; padding: 0; background: #fff; min-height: 0; }
-        body > :not(.print-area) { display: none !important; }
+        @page {
+          size: 80mm 297mm;
+          margin: 0;
+        }
+        body, html { margin: 0; padding: 0; background: #fff; }
+        body * { visibility: hidden; }
+        .print-area, .print-area * { visibility: visible; }
+        .print-area { 
+          position: absolute; 
+          left: 0; 
+          top: 0; 
+          width: 80mm;
+          background: #fff; 
+          margin: 0; 
+          padding: 0; 
+        }
+        .no-print { display: none !important; }
       }
     `}</style>
     </>
